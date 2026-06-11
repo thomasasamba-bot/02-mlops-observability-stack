@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-training
+  namespace: mlops
+  labels:
+    app: model-training
+    component: pipeline
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600   # clean up pod after 1h
+  template:
+    metadata:
+      labels:
+        app: model-training
+        component: pipeline
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        # Wait for MLflow to be ready before training
+        - name: wait-for-mlflow
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for MLflow at mlflow:5000 ..."
+              until wget -qO- http://mlflow:5000/health > /dev/null 2>&1; do
+                echo "MLflow not ready, retrying in 5s ..."
+                sleep 5
+              done
+              echo "MLflow is ready."
+      containers:
+        - name: trainer
+          image: observability-ml:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              python scripts/data/generate_data.py && \
+              python -m app.pipeline.train
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow:5000"
+            - name: PYTHONPATH
+              value: "/app"
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+      volumes:
+        - name: data-volume
+          emptyDir: {}
+
+---
+# =============================================================================

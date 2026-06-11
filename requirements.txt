@@ -1,0 +1,36 @@
+# =============================================================================
+# requirements.txt
+# 02-observability-ml-alerting — Enterprise MLOps Observability Platform
+#
+# Install:  pip install -r requirements.txt
+# Python:   3.12+  (tested on 3.14.5 / macOS Ventura 13)
+# All versions confirmed installed and working in project venv.
+# =============================================================================
+
+# ── Web framework & serving ───────────────────────────────────────────────────
+fastapi==0.136.3
+uvicorn[standard]==0.48.0
+pydantic==2.13.4
+starlette==1.2.0
+
+# ── ML core ───────────────────────────────────────────────────────────────────
+scikit-learn==1.8.0
+numpy==2.4.6
+pandas==2.3.3
+scipy==1.17.1
+
+# ── MLflow experiment tracking & model registry ───────────────────────────────
+mlflow==3.13.0
+
+# ── Prometheus metrics exposition ─────────────────────────────────────────────
+prometheus_client==0.25.0
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest==9.0.3
+anyio==4.13.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv==1.2.2
+
+# ── HTTP client ───────────────────────────────────────────────────────────────
+requests==2.34.2

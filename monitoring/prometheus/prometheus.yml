@@ -1,0 +1,210 @@
+# =============================================================================
+# Prometheus Configuration
+# =============================================================================
+#
+# Purpose
+# -----------------------------------------------------------------------------
+# Central metrics collection platform for the ML Observability stack.
+#
+# Responsibilities:
+#   - Scrape infrastructure metrics
+#   - Scrape application metrics
+#   - Evaluate alert rules
+#   - Forward alerts to Alertmanager
+#
+# Metrics Sources:
+#   - Prometheus (self-monitoring)
+#   - Node Exporter
+#   - cAdvisor
+#   - Anomaly Detector (FastAPI)
+#   - Alertmanager
+#   - Elasticsearch
+#   - Kibana
+#   - Filebeat
+#
+# =============================================================================
+
+global:
+
+  # Scrape targets every 15 seconds
+  scrape_interval: 15s
+
+  # Evaluate alert rules every 15 seconds
+  evaluation_interval: 15s
+
+  # Maximum scrape duration
+  scrape_timeout: 10s
+
+  external_labels:
+    monitor: "ml-observability-platform"
+    environment: "local"
+
+# =============================================================================
+# Alertmanager Integration
+# =============================================================================
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - "alertmanager:9093"
+
+      timeout: 10s
+
+# =============================================================================
+# Alert Rules
+# =============================================================================
+
+rule_files:
+  - "alert_rules.yml"
+
+# =============================================================================
+# Scrape Jobs
+# =============================================================================
+
+scrape_configs:
+
+  # ---------------------------------------------------------------------------
+  # Prometheus Self Monitoring
+  # ---------------------------------------------------------------------------
+  - job_name: "prometheus"
+
+    static_configs:
+      - targets:
+          - "localhost:9090"
+
+        labels:
+          service: prometheus
+          environment: local
+
+  # ---------------------------------------------------------------------------
+  # Host Infrastructure Metrics
+  # ---------------------------------------------------------------------------
+  - job_name: "node-exporter"
+
+    static_configs:
+      - targets:
+          - "node-exporter:9100"
+
+        labels:
+          service: node-exporter
+          environment: local
+
+  # ---------------------------------------------------------------------------
+  # Container Metrics
+  # ---------------------------------------------------------------------------
+  - job_name: "cadvisor"
+
+    static_configs:
+      - targets:
+          - "cadvisor:8080"
+
+        labels:
+          service: cadvisor
+          environment: local
+
+  # ---------------------------------------------------------------------------
+  # Alertmanager Metrics
+  # ---------------------------------------------------------------------------
+  - job_name: "alertmanager"
+
+    static_configs:
+      - targets:
+          - "alertmanager:9093"
+
+        labels:
+          service: alertmanager
+          environment: local
+
+  # ---------------------------------------------------------------------------
+  # AIOps Infrastructure Anomaly Detection Service
+  # ---------------------------------------------------------------------------
+  #
+  # Exposes:
+  #   /metrics
+  #   /health/live
+  #   /health/ready
+  #
+  - job_name: "anomaly-detector"
+
+    metrics_path: /metrics
+
+    static_configs:
+      - targets:
+          - "anomaly-detector:8000"
+
+        labels:
+          service: anomaly-detector
+          environment: local
+          team: aiops
+
+  # ---------------------------------------------------------------------------
+  # Elasticsearch Metrics
+  # ---------------------------------------------------------------------------
+  - job_name: "elasticsearch"
+
+    static_configs:
+      - targets:
+          - "elasticsearch:9200"
+
+        labels:
+          service: elasticsearch
+          environment: local
+
+  # ---------------------------------------------------------------------------
+  # Kibana Metrics
+  # ---------------------------------------------------------------------------
+  - job_name: "kibana"
+
+    static_configs:
+      - targets:
+          - "kibana:5601"
+
+        labels:
+          service: kibana
+          environment: local
+
+  # ---------------------------------------------------------------------------
+  # Filebeat Metrics
+  # ---------------------------------------------------------------------------
+  - job_name: "filebeat"
+
+    static_configs:
+      - targets:
+          - "filebeat:5066"
+
+        labels:
+          service: filebeat
+          environment: local
+
+  # ---------------------------------------------------------------------------
+  # ML Feature Drift Detection Service
+  # ---------------------------------------------------------------------------
+  - job_name: "ml-drift-detector"
+
+    metrics_path: /metrics
+
+    static_configs:
+      - targets:
+          - "ml-drift-detector:8006"
+
+        labels:
+          service: ml-drift-detector
+          environment: local
+          team: mlops
+
+  # ---------------------------------------------------------------------------
+  # ML Metrics Exporter Service
+  # ---------------------------------------------------------------------------
+  - job_name: "metrics-exporter"
+
+    metrics_path: /metrics
+
+    static_configs:
+      - targets:
+          - "metrics-exporter:8007"
+
+        labels:
+          service: metrics-exporter
+          environment: local
+          team: mlops

@@ -1,0 +1,68 @@
+# =============================================================================
+# pyproject.toml
+# 02-observability-ml-alerting — Enterprise MLOps Observability Platform
+# =============================================================================
+
+[build-system]
+requires      = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name        = "observability-ml-alerting"
+version     = "1.0.0"
+description = "Enterprise MLOps observability platform: model drift detection, prediction confidence monitoring, and ML pipeline observability"
+readme      = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.6",
+    "pydantic==2.9.2",
+    "scikit-learn==1.5.2",
+    "numpy==1.26.4",
+    "pandas==2.2.3",
+    "scipy==1.14.1",
+    "mlflow==2.16.0",
+    "prometheus-client==0.21.0",
+    "python-dotenv==1.0.1",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.3.3",
+    "anyio==4.6.0",
+]
+dev = [
+    "pytest==8.3.3",
+    "anyio==4.6.0",
+    "ruff==0.6.9",
+    "mypy==1.11.2",
+]
+
+[project.scripts]
+generate-data   = "scripts.data.generate_data:main"
+train-model     = "app.pipeline.train:main"
+drift-report    = "app.pipeline.drift_detector:main"
+inject-drift    = "tests.chaos.inject_drift:main"
+
+[tool.pytest.ini_options]
+testpaths    = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts      = "-v --tb=short"
+filterwarnings = [
+    "ignore::FutureWarning:mlflow.*",
+    "ignore::DeprecationWarning:mlflow.*",
+    "ignore::DeprecationWarning:codecs.*",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true

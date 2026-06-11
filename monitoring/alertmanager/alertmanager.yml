@@ -1,0 +1,171 @@
+# =============================================================================
+# Alertmanager Configuration
+# =============================================================================
+#
+# Purpose
+# -----------------------------------------------------------------------------
+# Receives alerts from Prometheus and routes them to:
+#
+#   - AIOps anomaly service
+#   - Slack
+#   - Email
+#   - PagerDuty
+#   - Opsgenie
+#
+# Current Environment:
+#   Local Development
+#
+# Future:
+#   Kubernetes Production Deployment
+#
+# =============================================================================
+
+global:
+
+  resolve_timeout: 5m
+
+  smtp_smarthost: "smtp.gmail.com:587"
+  smtp_from: "alertmanager@observability.local"
+
+  smtp_auth_username: "${SMTP_USERNAME}"
+  smtp_auth_password: "${SMTP_PASSWORD}"
+
+  smtp_require_tls: true
+
+# =============================================================================
+# Templates
+# =============================================================================
+
+templates:
+  - "/etc/alertmanager/templates/*.tmpl"
+
+# =============================================================================
+# Inhibition Rules
+# =============================================================================
+#
+# Prevent warning alerts when a critical alert already exists.
+#
+# Example:
+#   HighCPUWarning suppressed if HighCPUCritical exists.
+#
+# =============================================================================
+
+inhibit_rules:
+
+  - source_matchers:
+      - severity="critical"
+
+    target_matchers:
+      - severity="warning"
+
+    equal:
+      - instance
+      - alertname
+
+# =============================================================================
+# Routing Tree
+# =============================================================================
+
+route:
+
+  receiver: "default"
+
+  group_by:
+    - alertname
+    - instance
+    - severity
+
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  routes:
+
+    # -------------------------------------------------------------------------
+    # Critical Alerts
+    # -------------------------------------------------------------------------
+    - matchers:
+        - severity="critical"
+
+      receiver: "critical-alerts"
+
+      group_wait: 10s
+      repeat_interval: 1h
+
+      continue: true
+
+    # -------------------------------------------------------------------------
+    # AIOps Alerts
+    # -------------------------------------------------------------------------
+    - matchers:
+        - team="aiops"
+
+      receiver: "aiops-alerts"
+
+      group_wait: 15s
+      repeat_interval: 2h
+
+    # -------------------------------------------------------------------------
+    # Infrastructure Alerts
+    # -------------------------------------------------------------------------
+    - matchers:
+        - team="infrastructure"
+
+      receiver: "infra-alerts"
+
+      group_wait: 30s
+      repeat_interval: 4h
+
+# =============================================================================
+# Receivers
+# =============================================================================
+
+receivers:
+
+  # ---------------------------------------------------------------------------
+  # Default Receiver
+  # ---------------------------------------------------------------------------
+  - name: "default"
+
+    webhook_configs:
+
+      - url: "http://anomaly-detector:8000/webhook/alerts"
+
+        send_resolved: true
+
+  # ---------------------------------------------------------------------------
+  # Critical Alerts
+  # ---------------------------------------------------------------------------
+  - name: "critical-alerts"
+
+    webhook_configs:
+
+      - url: "http://anomaly-detector:8000/webhook/critical"
+
+        send_resolved: true
+
+  # ---------------------------------------------------------------------------
+  # AIOps Alerts
+  # ---------------------------------------------------------------------------
+  - name: "aiops-alerts"
+
+    webhook_configs:
+
+      - url: "http://anomaly-detector:8000/webhook/anomaly"
+
+        send_resolved: true
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure Alerts
+  # ---------------------------------------------------------------------------
+  - name: "infra-alerts"
+
+    webhook_configs:
+
+      - url: "http://anomaly-detector:8000/webhook/alerts"
+
+        send_resolved: true
+
+# =============================================================================
+# End of File
+# =============================================================================

@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-server
+  namespace: mlops
+  labels:
+    app: inference-server
+    component: serving
+spec:
+  replicas: 1    # MUST be 1 — in-process model cache and prediction buffer
+  selector:
+    matchLabels:
+      app: inference-server
+  template:
+    metadata:
+      labels:
+        app: inference-server
+        component: serving
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "8006"
+        prometheus.io/path:   "/metrics"
+    spec:
+      initContainers:
+        - name: wait-for-mlflow
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until wget -qO- http://mlflow:5000/health > /dev/null 2>&1; do
+                echo "Waiting for MLflow ..."; sleep 5
+              done
+      containers:
+        - name: inference-server
+          image: observability-ml:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - uvicorn
+            - app.serving.app:app
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8006"
+            - --workers
+            - "1"
+          ports:
+            - containerPort: 8006
+              name: http
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow:5000"
+            - name: SCHEMA_PATH
+              value: "/app/data/processed/feature_schema.json"
+            - name: DRIFT_INTERVAL
+              value: "120"
+            - name: DRIFT_WINDOW
+              value: "300"
+            - name: DECISION_THRESHOLD
+              value: "0.40"
+            - name: PYTHONPATH
+              value: "/app"
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+              readOnly: true
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8006
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8006
+            initialDelaySeconds: 60
+            periodSeconds: 20
+      volumes:
+        - name: data-volume
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-server
+  namespace: mlops
+  labels:
+    app: inference-server
+spec:
+  selector:
+    app: inference-server
+  ports:
+    - port: 8006
+      targetPort: 8006
+      name: http
+  type: ClusterIP
+
+---
+# =============================================================================

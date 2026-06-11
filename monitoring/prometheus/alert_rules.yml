@@ -1,0 +1,476 @@
+# =============================================================================
+# Prometheus Alert Rules
+# =============================================================================
+#
+# Purpose
+# -----------------------------------------------------------------------------
+# Defines alerting logic for:
+#
+# 1. Host Infrastructure Monitoring
+# 2. Container Health Monitoring
+# 3. AIOps Anomaly Detection
+# 4. ML Feature Drift Detection
+# 5. Service Availability Monitoring
+# 6. Prometheus Health Monitoring
+#
+# Alert Flow
+# -----------------------------------------------------------------------------
+#
+# Prometheus
+#      ↓
+# Alert Rules
+#      ↓
+# Alertmanager
+#      ↓
+# anomaly-detector
+#      ↓
+# Slack / Email / PagerDuty
+#
+# =============================================================================
+
+groups:
+
+# =============================================================================
+# HOST / SYSTEM ALERTS
+# =============================================================================
+
+- name: host_alerts
+
+  interval: 30s
+
+  rules:
+
+    # -------------------------------------------------------------------------
+    # High CPU Usage
+    # -------------------------------------------------------------------------
+    - alert: HighCPUUsage
+
+      expr: |
+        100 -
+        (
+          avg by(instance)
+          (
+            rate(node_cpu_seconds_total{mode="idle"}[5m])
+          ) * 100
+        ) > 80
+
+      for: 5m
+
+      labels:
+        severity: warning
+        team: infrastructure
+
+      annotations:
+        summary: "High CPU usage on {{ $labels.instance }}"
+        description: "CPU usage is {{ printf \"%.1f\" $value }}% (threshold: 80%) for 5+ minutes."
+        runbook: "https://github.com/thomasasamba-bot/02-observability-ml-alerting/wiki/runbooks/high-cpu"
+
+    # -------------------------------------------------------------------------
+    # Critical CPU Usage
+    # -------------------------------------------------------------------------
+    - alert: CriticalCPUUsage
+
+      expr: |
+        100 -
+        (
+          avg by(instance)
+          (
+            rate(node_cpu_seconds_total{mode="idle"}[5m])
+          ) * 100
+        ) > 95
+
+      for: 2m
+
+      labels:
+        severity: critical
+        team: infrastructure
+
+      annotations:
+        summary: "CRITICAL CPU usage on {{ $labels.instance }}"
+        description: "CPU usage is {{ printf \"%.1f\" $value }}% — immediate attention required."
+
+    # -------------------------------------------------------------------------
+    # High Memory Usage
+    # -------------------------------------------------------------------------
+    - alert: HighMemoryUsage
+
+      expr: |
+        (
+          1 -
+          (
+            node_memory_MemAvailable_bytes
+            /
+            node_memory_MemTotal_bytes
+          )
+        ) * 100 > 85
+
+      for: 5m
+
+      labels:
+        severity: warning
+        team: infrastructure
+
+      annotations:
+        summary: "High memory usage on {{ $labels.instance }}"
+        description: "Memory usage is {{ printf \"%.1f\" $value }}% (threshold: 85%)."
+
+    # -------------------------------------------------------------------------
+    # Disk Space Low
+    # -------------------------------------------------------------------------
+    - alert: DiskSpaceLow
+
+      expr: |
+        (
+          1 -
+          (
+            node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs"}
+            /
+            node_filesystem_size_bytes
+          )
+        ) * 100 > 85
+
+      for: 10m
+
+      labels:
+        severity: warning
+        team: infrastructure
+
+      annotations:
+        summary: "Low disk space on {{ $labels.instance }}:{{ $labels.mountpoint }}"
+        description: "Disk usage is {{ printf \"%.1f\" $value }}% on {{ $labels.mountpoint }}."
+
+    # -------------------------------------------------------------------------
+    # Disk Space Critical
+    # -------------------------------------------------------------------------
+    - alert: DiskSpaceCritical
+
+      expr: |
+        (
+          1 -
+          (
+            node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs"}
+            /
+            node_filesystem_size_bytes
+          )
+        ) * 100 > 95
+
+      for: 5m
+
+      labels:
+        severity: critical
+        team: infrastructure
+
+      annotations:
+        summary: "CRITICAL disk space on {{ $labels.instance }}:{{ $labels.mountpoint }}"
+        description: "Disk usage is {{ printf \"%.1f\" $value }}% — filesystem nearly full."
+
+    # -------------------------------------------------------------------------
+    # High Network Traffic
+    # -------------------------------------------------------------------------
+    - alert: HighNetworkTraffic
+
+      expr: |
+        rate(node_network_receive_bytes_total{device!="lo"}[5m]) > 100000000
+
+      for: 5m
+
+      labels:
+        severity: warning
+        team: infrastructure
+
+      annotations:
+        summary: "High inbound network traffic on {{ $labels.instance }}"
+        description: "Receiving {{ humanize $value }}B/s on {{ $labels.device }}."
+
+    # -------------------------------------------------------------------------
+    # Node Down
+    # -------------------------------------------------------------------------
+    - alert: NodeDown
+
+      expr: |
+        up{job="node-exporter"} == 0
+
+      for: 1m
+
+      labels:
+        severity: critical
+        team: infrastructure
+
+      annotations:
+        summary: "Node exporter down — host unreachable: {{ $labels.instance }}"
+        description: "Node {{ $labels.instance }} has been unreachable for 1+ minute."
+
+# =============================================================================
+# CONTAINER ALERTS
+# =============================================================================
+
+- name: container_alerts
+
+  interval: 30s
+
+  rules:
+
+    # -------------------------------------------------------------------------
+    # Container CPU Usage
+    # -------------------------------------------------------------------------
+    - alert: ContainerHighCPU
+
+      expr: |
+        rate(container_cpu_usage_seconds_total{name!=""}[5m]) * 100 > 80
+
+      for: 5m
+
+      labels:
+        severity: warning
+        team: infrastructure
+
+      annotations:
+        summary: "Container {{ $labels.name }} high CPU"
+        description: "Container CPU at {{ printf \"%.1f\" $value }}%."
+
+    # -------------------------------------------------------------------------
+    # Container Memory Usage
+    # -------------------------------------------------------------------------
+    - alert: ContainerHighMemory
+
+      expr: |
+        (
+          container_memory_usage_bytes{name!=""}
+          /
+          clamp_min(container_spec_memory_limit_bytes{name!=""}, 1)
+        ) * 100 > 85
+
+      for: 5m
+
+      labels:
+        severity: warning
+        team: infrastructure
+
+      annotations:
+        summary: "Container {{ $labels.name }} high memory"
+        description: "Container memory at {{ printf \"%.1f\" $value }}% of limit."
+
+    # -------------------------------------------------------------------------
+    # Container Restart Detection
+    # -------------------------------------------------------------------------
+    - alert: ContainerRestarting
+
+      expr: |
+        changes(container_start_time_seconds{name!=""}[15m]) > 1
+
+      for: 2m
+
+      labels:
+        severity: warning
+        team: infrastructure
+
+      annotations:
+        summary: "Container {{ $labels.name }} restarted"
+        description: "Container has restarted multiple times within 15 minutes."
+
+# =============================================================================
+# ML ANOMALY ALERTS
+# =============================================================================
+
+- name: ml_anomaly_alerts
+
+  interval: 60s
+
+  rules:
+
+    - alert: AnomalyDetected
+
+      expr: |
+        ml_anomaly_score > 2.5
+
+      for: 2m
+
+      labels:
+        severity: warning
+        team: aiops
+        type: anomaly
+
+      annotations:
+        summary: "ML anomaly detected on {{ $labels.metric }} for {{ $labels.instance }}"
+        description: "Anomaly score {{ printf \"%.2f\" $value }} exceeds threshold 2.5."
+
+    - alert: AnomalyCritical
+
+      expr: |
+        ml_anomaly_score > 4.0
+
+      for: 1m
+
+      labels:
+        severity: critical
+        team: aiops
+        type: anomaly
+
+      annotations:
+        summary: "CRITICAL ML anomaly detected"
+        description: "Anomaly score {{ printf \"%.2f\" $value }} is highly abnormal."
+
+    - alert: PredictedOutage
+
+      expr: |
+        ml_outage_probability > 0.75
+
+      for: 3m
+
+      labels:
+        severity: critical
+        team: aiops
+        type: predictive
+
+      annotations:
+        summary: "Predicted outage risk"
+        description: "Predicted outage probability exceeds 75%."
+
+# =============================================================================
+# FEATURE DRIFT ALERTS
+# =============================================================================
+
+- name: feature_drift_alerts
+
+  interval: 60s
+
+  rules:
+
+    - alert: FeatureDriftDetected
+
+      expr: |
+        ml_feature_drift_psi > 0.2
+
+      for: 5m
+
+      labels:
+        severity: warning
+        team: aiops
+        type: drift
+
+      annotations:
+        summary: "Feature drift detected"
+        description: "Feature distribution drift exceeds acceptable threshold."
+
+    - alert: FeatureDriftCritical
+
+      expr: |
+        ml_feature_drift_psi > 0.4
+
+      for: 2m
+
+      labels:
+        severity: critical
+        team: aiops
+        type: drift
+
+      annotations:
+        summary: "Critical feature drift detected"
+        description: "Model accuracy may be degraded."
+
+# =============================================================================
+# SERVICE AVAILABILITY ALERTS
+# =============================================================================
+
+- name: service_availability
+
+  interval: 30s
+
+  rules:
+
+    - alert: ServiceDown
+
+      expr: |
+        up == 0
+
+      for: 2m
+
+      labels:
+        severity: critical
+        team: infrastructure
+
+      annotations:
+        summary: "Service unavailable: {{ $labels.job }}"
+        description: "{{ $labels.instance }} is unreachable."
+
+    - alert: AlertmanagerDown
+
+      expr: |
+        up{job="alertmanager"} == 0
+
+      for: 2m
+
+      labels:
+        severity: critical
+        team: infrastructure
+
+      annotations:
+        summary: "Alertmanager is down"
+
+    - alert: ElasticsearchDown
+
+      expr: |
+        up{job="elasticsearch"} == 0
+
+      for: 2m
+
+      labels:
+        severity: critical
+        team: infrastructure
+
+      annotations:
+        summary: "Elasticsearch is down"
+
+    - alert: GrafanaDown
+
+      expr: |
+        up{job="grafana"} == 0
+
+      for: 2m
+
+      labels:
+        severity: warning
+        team: infrastructure
+
+      annotations:
+        summary: "Grafana is unavailable"
+
+# =============================================================================
+# PROMETHEUS SELF HEALTH
+# =============================================================================
+
+- name: prometheus_health
+
+  rules:
+
+    - alert: PrometheusTargetDown
+
+      expr: |
+        up == 0
+
+      for: 5m
+
+      labels:
+        severity: warning
+        team: infrastructure
+
+      annotations:
+        summary: "Prometheus target down: {{ $labels.job }} / {{ $labels.instance }}"
+
+    - alert: PrometheusConfigReloadFailed
+
+      expr: |
+        prometheus_config_last_reload_successful == 0
+
+      for: 5m
+
+      labels:
+        severity: warning
+        team: infrastructure
+
+      annotations:
+        summary: "Prometheus configuration reload failed"
+
+# =============================================================================
+# END OF FILE
+# =============================================================================

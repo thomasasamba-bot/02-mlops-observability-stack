@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-exporter
+  namespace: mlops
+  labels:
+    app: metrics-exporter
+    component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metrics-exporter
+  template:
+    metadata:
+      labels:
+        app: metrics-exporter
+        component: observability
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "8007"
+        prometheus.io/path:   "/metrics"
+    spec:
+      containers:
+        - name: metrics-exporter
+          image: observability-ml:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - uvicorn
+            - app.exporter.metrics_exporter:app
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8007"
+            - --workers
+            - "1"
+          ports:
+            - containerPort: 8007
+              name: http
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow:5000"
+            - name: INFERENCE_BASE_URL
+              value: "http://inference-server:8006"
+            - name: SCHEMA_PATH
+              value: "/app/data/processed/feature_schema.json"
+            - name: EXPORTER_POLL_INTERVAL
+              value: "60"
+            - name: PYTHONPATH
+              value: "/app"
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+              readOnly: true
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /health/live
+              port: 8007
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8007
+            initialDelaySeconds: 30
+            periodSeconds: 20
+      volumes:
+        - name: data-volume
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics-exporter
+  namespace: mlops
+  labels:
+    app: metrics-exporter
+spec:
+  selector:
+    app: metrics-exporter
+  ports:
+    - port: 8007
+      targetPort: 8007
+      name: http
+  type: ClusterIP
+
+---
+# =============================================================================

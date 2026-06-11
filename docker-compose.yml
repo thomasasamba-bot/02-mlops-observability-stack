@@ -1,0 +1,331 @@
+# =============================================================================
+# Enterprise MLOps Observability Platform
+# =============================================================================
+#
+# Purpose
+# -----------------------------------------------------------------------------
+# Local development and observability orchestration stack for:
+#
+# - AIOps infrastructure anomaly detection
+# - Prometheus monitoring
+# - Grafana visualization
+# - Alertmanager alert routing
+# - Elasticsearch event indexing
+# - Logstash log processing
+# - Kibana analytics
+#
+# NOTE:
+# -----------------------------------------------------------------------------
+# Markdown image rendering does NOT work inside docker-compose.yml comments.
+# These architecture images are intended for README.md documentation.
+#
+# Recommended documentation references:
+#
+# docs/architecture/METRICS_PIPELINE-Time_Series_Observability.png
+# docs/architecture/LOGS_PIPELINE-Event_Driven_Observability.png
+#
+# =============================================================================
+
+version: "3.9"
+
+services:
+
+  # ===========================================================================
+  # AIOps Infrastructure Anomaly Detection Service
+  # ===========================================================================
+  anomaly-detector:
+
+    build:
+      context: .
+      dockerfile: app/serving/Dockerfile
+
+    container_name: anomaly-detector
+
+    ports:
+      - "8005:8000"
+
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      ALERTMANAGER_URL: http://alertmanager:9093
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+
+    depends_on:
+      - prometheus
+      - alertmanager
+      - elasticsearch
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Prometheus Monitoring Service
+  # ===========================================================================
+  prometheus:
+
+    image: prom/prometheus:latest
+
+    container_name: prometheus
+
+    ports:
+      - "9090:9090"
+
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml
+      - prometheus-data:/prometheus
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+    depends_on:
+      - node-exporter
+      - cadvisor
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Grafana Visualization Platform
+  # ===========================================================================
+  grafana:
+
+    image: grafana/grafana:latest
+
+    container_name: grafana
+
+    ports:
+      - "3000:3000"
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+    depends_on:
+      - prometheus
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Alertmanager
+  # ===========================================================================
+  alertmanager:
+
+    image: prom/alertmanager:latest
+
+    container_name: alertmanager
+
+    ports:
+      - "9093:9093"
+
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Elasticsearch
+  # ===========================================================================
+  elasticsearch:
+
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+
+    container_name: elasticsearch
+
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+
+    ports:
+      - "9200:9200"
+
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+
+    restart: unless-stopped
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--spider",
+          "-q",
+          "http://localhost:9200/_cluster/health"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ===========================================================================
+  # Logstash
+  # ===========================================================================
+  logstash:
+
+    image: docker.elastic.co/logstash/logstash:8.12.0
+
+    container_name: logstash
+
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+
+    volumes:
+      - ./infra/docker/logstash/pipeline/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+
+    depends_on:
+      - elasticsearch
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9600"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ===========================================================================
+  # Kibana
+  # ===========================================================================
+  kibana:
+
+    image: docker.elastic.co/kibana/kibana:8.12.0
+
+    container_name: kibana
+
+    ports:
+      - "5601:5601"
+
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+
+    depends_on:
+      - elasticsearch
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5601/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ===========================================================================
+  # Node Exporter
+  # ===========================================================================
+  node-exporter:
+
+    image: prom/node-exporter:latest
+
+    container_name: node-exporter
+
+    ports:
+      - "9100:9100"
+
+    pid: host
+
+    volumes:
+      - /:/host:ro,rslave
+
+    command:
+      - "--path.rootfs=/host"
+
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Filebeat
+  # ===========================================================================
+  filebeat:
+
+    image: docker.elastic.co/beats/filebeat:8.12.0
+
+    container_name: filebeat
+
+    user: root
+
+    volumes:
+      - ./infra/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    command: >
+      filebeat -e -strict.perms=false
+
+    depends_on:
+      - logstash
+
+    restart: unless-stopped
+
+  # ===========================================================================
+  # cAdvisor
+  # ===========================================================================
+  cadvisor:
+
+    image: gcr.io/cadvisor/cadvisor:latest
+
+    container_name: cadvisor
+
+    ports:
+      - "8080:8080"
+
+    privileged: true
+
+    devices:
+      - /dev/kmsg
+
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+# =============================================================================
+# Persistent Volumes
+# =============================================================================
+volumes:
+
+  prometheus-data:
+  grafana-data:
+  elasticsearch-data:
+

@@ -1,0 +1,38 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*.pycache
+
+# Runtime artifacts
+mlflow.db
+mlartifacts/
+mlruns/
+*.db
+
+# OS
+.DS_Store
+.env
+
+# Data (large files)
+data/raw/*.csv
+data/processed/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pycache
+
+# Runtime artifacts
+mlflow.db
+mlartifacts/
+mlruns/
+*.db
+
+# OS
+.DS_Store
+.env
+
+# Data (large files)
+data/raw/*.csv
+data/processed/*.json
