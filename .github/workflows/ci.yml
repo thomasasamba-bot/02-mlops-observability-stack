@@ -6,8 +6,9 @@
 # Jobs:
 #   lint        → ruff (style + imports)
 #   unit-tests  → 86 offline tests (no services needed)
-#   drift-check → batch PSI/KS-test report against credit_drifted.csv
-#                 exits 1 if drift detected (gates deployment)
+#   drift-check → PSI/KS-test report against credit_drifted.csv
+#                 exits 1 if drift NOT detected (detector broken)
+#                 exits 1 if drift IS detected on baseline (false positive)
 # =============================================================================
 
 name: CI
@@ -47,6 +48,8 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: lint
+    env:
+      MLFLOW_TRACKING_URI: "sqlite:///mlflow-ci.db"
     steps:
       - uses: actions/checkout@v4
 
@@ -61,6 +64,9 @@ jobs:
 
       - name: Generate datasets
         run: python scripts/data/generate_data.py
+
+      - name: Create test results directory
+        run: mkdir -p test-results
 
       - name: Run unit tests
         run: pytest tests/unit/ -v --tb=short --junitxml=test-results/unit.xml
@@ -77,6 +83,8 @@ jobs:
     name: Drift Gate
     runs-on: ubuntu-latest
     needs: unit-tests
+    env:
+      MLFLOW_TRACKING_URI: "sqlite:///mlflow-ci.db"
     steps:
       - uses: actions/checkout@v4
 
@@ -89,32 +97,39 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Generate datasets + train model
-        run: |
-          python scripts/data/generate_data.py
-          python -m app.pipeline.train --no-register
+      - name: Generate datasets
+        run: python scripts/data/generate_data.py
 
-      - name: Run drift check against drifted dataset
-        id: drift
+      - name: Train model (SQLite backend — no server needed)
+        run: python -m app.pipeline.train --no-register
+
+      - name: Drift check — drifted CSV (MUST fire)
+        id: drift-drifted
         run: |
           python -m app.pipeline.drift_detector \
             --current-csv data/raw/credit_drifted.csv
-        # exits 1 if drift detected — which is EXPECTED for the drifted CSV
         continue-on-error: true
 
-      - name: Run drift check against baseline (must be clean)
+      - name: Assert drift was detected in drifted CSV
+        if: steps.drift-drifted.outcome == 'success'
+        run: |
+          echo "ERROR: drift_detector did not fire on credit_drifted.csv"
+          echo "The drift detector may be broken — check PSI thresholds."
+          exit 1
+
+      - name: Drift check — baseline CSV (must NOT fire)
+        id: drift-baseline
         run: |
           python -m app.pipeline.drift_detector \
             --current-csv data/raw/credit_baseline.csv
-        # exits 1 if drift detected on BASELINE — that would be a bug
+        continue-on-error: true
 
-      - name: Assert drifted CSV triggers drift
-        if: steps.drift.outcome == 'success'
+      - name: Assert no false positive on baseline CSV
+        if: steps.drift-baseline.outcome == 'failure'
         run: |
-          echo "ERROR: Drift check did not fire on credit_drifted.csv"
-          echo "The drift detector may be broken."
+          echo "ERROR: drift_detector fired on credit_baseline.csv — false positive"
+          echo "Check PSI thresholds or training data generation."
           exit 1
 
       - name: Drift gate passed
-        if: steps.drift.outcome == 'failure'
-        run: echo "Drift correctly detected in drifted dataset ✓"
+        run: echo "✓ Drift detector fires on drifted data and is quiet on stable data"

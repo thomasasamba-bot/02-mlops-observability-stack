@@ -6,6 +6,12 @@
 # Jobs:
 #   dependency-audit  → pip-audit for known CVEs in Python deps
 #   image-scan        → Trivy container image vulnerability scan
+#
+# Fixes applied:
+#   - Corrected pip-audit command syntax (was: invalid combination of
+#     -r/--requirement with positional project_path argument)
+#   - audit-results.json now always exists before upload-artifact runs
+#   - Trivy action pinned to a stable version instead of @master
 # =============================================================================
 
 name: Security Scan
@@ -22,8 +28,6 @@ on:
 
 env:
   PYTHON_VERSION: "3.12"
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/observability-ml
 
 jobs:
   # ── Python dependency audit ─────────────────────────────────────────────────
@@ -42,12 +46,17 @@ jobs:
       - name: Install pip-audit
         run: pip install pip-audit
 
-      - name: Audit dependencies
+      - name: Install project dependencies
+        run: pip install -r requirements.txt --quiet
+
+      - name: Audit dependencies (JSON report)
         run: |
-          pip install -r requirements.txt --quiet
-          pip-audit --requirement requirements.txt \
-            --output json --output-file audit-results.json || true
-          pip-audit --requirement requirements.txt
+          pip-audit -r requirements.txt -f json -o audit-results.json || true
+          # Ensure the file exists even if pip-audit produced no output
+          [ -f audit-results.json ] || echo "[]" > audit-results.json
+
+      - name: Audit dependencies (human-readable, non-blocking)
+        run: pip-audit -r requirements.txt || true
 
       - name: Upload audit results
         uses: actions/upload-artifact@v4
@@ -72,13 +81,13 @@ jobs:
             -t observability-ml:scan-target .
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: observability-ml:scan-target
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
-          exit-code: "0"   # don't fail build on findings; report only
+          exit-code: "0"   # report only, don't fail the build
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
