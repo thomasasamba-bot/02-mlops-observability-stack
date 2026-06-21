@@ -1,0 +1,20 @@
+# =============================================================================
+# monitoring/grafana/provisioning/datasources/prometheus.yml
+#
+# Auto-provisions the Prometheus datasource on Grafana startup.
+# Grafana reads all *.yml files in this directory on boot and registers
+# the datasources defined here — no manual "Add data source" step needed.
+# =============================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
