@@ -5,7 +5,7 @@
 
 [build-system]
 requires      = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name        = "observability-ml-alerting"
@@ -14,27 +14,33 @@ description = "Enterprise MLOps observability platform: model drift detection, p
 readme      = "README.md"
 requires-python = ">=3.12"
 
+# Kept in lockstep with requirements.txt — this file previously pinned an
+# older, divergent set of versions (fastapi 0.115 vs 0.136, mlflow 2.16 vs
+# 3.13, etc). `pip install -r requirements.txt` and `pip install -e .` must
+# resolve to the same versions, or local dev / CI / packaging can silently
+# diverge.
 dependencies = [
-    "fastapi==0.115.0",
-    "uvicorn[standard]==0.30.6",
-    "pydantic==2.9.2",
-    "scikit-learn==1.5.2",
-    "numpy==1.26.4",
-    "pandas==2.2.3",
-    "scipy==1.14.1",
-    "mlflow==2.16.0",
-    "prometheus-client==0.21.0",
-    "python-dotenv==1.0.1",
+    "fastapi==0.136.3",
+    "uvicorn[standard]==0.48.0",
+    "pydantic==2.13.4",
+    "scikit-learn==1.8.0",
+    "numpy==2.4.6",
+    "pandas==2.3.3",
+    "scipy==1.17.1",
+    "mlflow==3.13.0",
+    "prometheus_client==0.25.0",
+    "python-dotenv==1.2.2",
+    "requests==2.34.2",
 ]
 
 [project.optional-dependencies]
 test = [
-    "pytest==8.3.3",
-    "anyio==4.6.0",
+    "pytest==9.0.3",
+    "anyio==4.13.0",
 ]
 dev = [
-    "pytest==8.3.3",
-    "anyio==4.6.0",
+    "pytest==9.0.3",
+    "anyio==4.13.0",
     "ruff==0.6.9",
     "mypy==1.11.2",
 ]
@@ -60,6 +66,8 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 ignore = ["E501"]
 

@@ -8,10 +8,12 @@
 # =============================================================================
 
 # ── Web framework & serving ───────────────────────────────────────────────────
+# starlette is NOT pinned directly — Starlette has never had a 1.x release on
+# PyPI (it pins its own compatible version as a FastAPI dependency). Pinning
+# it explicitly to a version that doesn't exist breaks `pip install` entirely.
 fastapi==0.136.3
 uvicorn[standard]==0.48.0
 pydantic==2.13.4
-starlette==1.2.0
 
 # ── ML core ───────────────────────────────────────────────────────────────────
 scikit-learn==1.8.0

@@ -79,7 +79,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: app/serving/Dockerfile
+          # infra/kubernetes/deployments/*.yaml and jobs/training-job.yaml all
+          # reference `observability-ml:latest`, which is this Dockerfile —
+          # NOT app/serving/Dockerfile (a separate, narrower image used only
+          # by local `docker compose build`). Building the wrong one here
+          # would push an image none of the K8s manifests actually ask for.
+          file: infra/docker/base-images/python-ml-base.Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -138,6 +143,12 @@ jobs:
           kubectl set image deployment/metrics-exporter \
             metrics-exporter=${{ needs.build-image.outputs.image-sha-tag }} \
             -n mlops
+          # NOTE: infra/kubernetes/jobs/training-job.yaml is intentionally not
+          # updated here — retraining is a deliberate, separate action, not
+          # something every deploy should trigger. To retrain against this
+          # build, re-apply training-job.yaml with its `image:` field pointed
+          # at ${{ needs.build-image.outputs.image-sha-tag }} (or re-run
+          # `bash scripts/deployment/deploy-k8s.sh --train` against the cluster).
 
       - name: Wait for rollout
         if: steps.kubeconfig.outputs.configured == 'true'

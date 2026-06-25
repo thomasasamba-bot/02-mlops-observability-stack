@@ -46,6 +46,7 @@ if [ "$BUILD" = true ]; then
         -f infra/docker/base-images/python-ml-base.Dockerfile \
         -t observability-ml:latest .
     info "Image built ✓"
+    info "MLflow image built ✓"
 fi
 
 # ── Deploy ────────────────────────────────────────────────────────────────────
@@ -66,12 +67,17 @@ kubectl apply -f infra/kubernetes/deployments/exporter-deployment.yaml
 # Ingress
 kubectl apply -f infra/kubernetes/ingress/ingress.yaml
 
-info "Waiting for deployments to be ready ..."
-kubectl rollout status deployment/mlflow          -n mlops --timeout=120s
-kubectl rollout status deployment/inference-server -n mlops --timeout=120s
-kubectl rollout status deployment/metrics-exporter -n mlops --timeout=120s
-kubectl rollout status deployment/prometheus        -n mlops --timeout=120s
-kubectl rollout status deployment/grafana           -n mlops --timeout=120s
+info "Waiting for MLflow / monitoring (no model dependency) ..."
+kubectl rollout status deployment/mlflow     -n mlops --timeout=120s
+kubectl rollout status deployment/prometheus -n mlops --timeout=120s
+kubectl rollout status deployment/grafana    -n mlops --timeout=120s
+
+# NOTE: inference-server's and metrics-exporter's readiness probes
+# (/health/ready) return 503 until a model has been registered in MLflow.
+# Their `kubectl rollout status` checks are intentionally deferred until
+# AFTER the training job runs below — checking them here would time out
+# and abort the script (set -e) on every first-time deploy, before training
+# ever had a chance to run.
 
 # ── Training job ──────────────────────────────────────────────────────────────
 if [ "$TRAIN" = true ]; then
@@ -82,6 +88,19 @@ if [ "$TRAIN" = true ]; then
     info "Waiting for training job to complete ..."
     kubectl wait --for=condition=complete job/model-training -n mlops --timeout=300s
     info "Training job complete ✓"
+else
+    warning "Skipping training (--train not set)."
+    warning "inference-server / metrics-exporter will report NOT READY"
+    warning "(/health/ready -> 503) until a model is registered. Run:"
+    warning "  bash scripts/deployment/deploy-k8s.sh --train"
+fi
+
+info "Waiting for inference-server / metrics-exporter ..."
+if [ "$TRAIN" = true ]; then
+    kubectl rollout status deployment/inference-server -n mlops --timeout=120s
+    kubectl rollout status deployment/metrics-exporter  -n mlops --timeout=120s
+else
+    info "(skipped — no model registered yet, see warning above)"
 fi
 
 # ── Port-forward helper ───────────────────────────────────────────────────────

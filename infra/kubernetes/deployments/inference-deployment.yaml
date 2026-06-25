@@ -1,3 +1,23 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ml-data-pvc
+  namespace: mlops
+  labels:
+    app: ml-data
+spec:
+  # ReadWriteOnce is sufficient because this manifest set targets a
+  # single-node cluster (minikube, per README). RWO restricts the volume to
+  # a single NODE, not a single pod — multiple pods on that one node
+  # (training-job, inference-server, metrics-exporter) can all mount it
+  # concurrently. On a real multi-node cluster, switch to a storage class
+  # that supports ReadWriteMany (e.g. NFS, EFS, Filestore) instead.
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -86,7 +106,8 @@ spec:
             periodSeconds: 20
       volumes:
         - name: data-volume
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: ml-data-pvc
 
 ---
 apiVersion: v1

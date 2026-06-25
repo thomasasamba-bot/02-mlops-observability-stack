@@ -1,8 +1,15 @@
-
 # Python
 __pycache__/
 *.py[cod]
 *.pycache
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
 
 # Runtime artifacts
 mlflow.db
@@ -10,29 +17,22 @@ mlartifacts/
 mlruns/
 *.db
 
-# OS
-.DS_Store
-.env
-
-# Data (large files)
-data/raw/*.csv
-data/processed/*.json
-
-# Python
-__pycache__/
-*.py[cod]
-*.pycache
-
-# Runtime artifacts
-mlflow.db
-mlartifacts/
-mlruns/
-*.db
+# Test / lint artifacts
+test-results/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
 
 # OS
 .DS_Store
 .env
 
-# Data (large files)
+# IDE
+.vscode/
+.idea/
+
+# Data (large / generated files)
 data/raw/*.csv
 data/processed/*.json

@@ -9,9 +9,19 @@ Tests are structured in four groups:
   3. Batch prediction — ordering, batch vs single consistency, empty batch
   4. Prediction buffer — rolling buffer population, stats, thread safety
 
-These tests load the model directly from the MLflow registry, so they
-require the MLflow server to be running AND a trained model to exist.
-If the server is unreachable they are skipped gracefully.
+These tests are fully offline: the `loaded_cache` fixture trains a tiny
+throwaway model and registers it into a temporary, file-backed SQLite
+MLflow store (created fresh per test session), then points predict.py's
+model cache at it directly. No live MLflow server or pre-existing
+registered model is required — this mirrors the pattern already used by
+tests/unit/test_training.py.
+
+(This previously hard-coded a check against http://localhost:5000 and
+skipped 22 of these 30 tests whenever that server wasn't already running
+with a model registered — which is exactly the case in CI, since
+.github/workflows/ci.yml's unit-tests job never starts an MLflow server.
+Those tests were silently SKIPPED, not "passed", despite this file being
+labeled fully offline.)
 
 Usage:
   pytest tests/unit/test_predict.py -v
@@ -56,59 +66,96 @@ FEATURE_COLUMNS = [
 ]
 
 
-def _mlflow_available() -> bool:
-    """Return True if the MLflow server is reachable."""
-    import urllib.error
-    import urllib.request
-    try:
-        urllib.request.urlopen("http://localhost:5000/health", timeout=2)
-        return True
-    except Exception:
-        return False
-
-
-def _model_available() -> bool:
-    """Return True if a trained model exists in the MLflow registry."""
-    if not _mlflow_available():
-        return False
-    try:
-        import mlflow
-        mlflow.set_tracking_uri("http://localhost:5000")
-        client = mlflow.tracking.MlflowClient()
-        versions = client.get_latest_versions("credit-scoring-model", stages=["Staging"])
-        return len(versions) > 0
-    except Exception:
-        return False
-
-
-requires_model = pytest.mark.skipif(
-    not _model_available(),
-    reason="MLflow server unreachable or no trained model in registry",
-)
-
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module", autouse=True)
-def set_mlflow_uri():
-    """Point predict.py at the local MLflow server."""
-    import os
-    os.environ["MLFLOW_TRACKING_URI"] = "http://localhost:5000"
-    yield
-
-
 @pytest.fixture(scope="module")
-def loaded_cache():
-    """Ensure the model cache is populated before tests run."""
-    from app.pipeline.predict import _cache
-    if _cache.model is None:
-        try:
-            _cache.ensure_loaded()
-        except Exception as exc:
-            pytest.skip(f"Model could not be loaded: {exc}")
-    return _cache
+def loaded_cache(tmp_path_factory):
+    """
+    Train a tiny throwaway RandomForest on synthetic data, register it into
+    a temp SQLite-backed MLflow store under the same name/stage predict.py
+    looks for, then point predict.py's module-level singleton model cache
+    (`_cache`) at that store and force-load it.
+
+    predict.py reads MLFLOW_TRACKING_URI / MODEL_STAGE into module-level
+    constants once, at import time — setting the env var alone has no
+    effect if the module was already imported elsewhere first. We patch
+    the already-imported module's constants directly so this is correct
+    regardless of test collection/import order.
+
+    NOTE: this fixture is module-scoped, but pytest's built-in
+    `monkeypatch` fixture is function-scoped — depending on it here would
+    raise ScopeMismatch. We use `pytest.MonkeyPatch()` directly instead,
+    which carries no scope restriction, and undo it ourselves at teardown.
+    """
+    # Reuse the project's own synthetic data generator (same one
+    # test_training.py uses) so the model actually learns a real
+    # credit-risk → default relationship. Pure random/uncorrelated
+    # labels would make assertions like "HIGH_RISK probability >
+    # LOW_RISK probability" flaky or simply wrong.
+    import sys
+    from pathlib import Path as _Path
+
+    import mlflow
+    import mlflow.sklearn
+    from sklearn.ensemble import RandomForestClassifier
+    sys.path.insert(0, str(_Path(__file__).parents[2]))
+    from scripts.data.generate_data import generate_baseline
+
+    tmp_dir       = tmp_path_factory.mktemp("mlflow_predict_test")
+    tracking_uri  = f"sqlite:///{tmp_dir / 'mlflow.db'}"
+
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_registry_uri(tracking_uri)
+
+    rng = np.random.default_rng(7)
+    train_df = generate_baseline(1500, rng)
+    X = train_df[FEATURE_COLUMNS]
+    y = train_df["default"]
+    clf = RandomForestClassifier(
+        n_estimators=100, max_depth=6, random_state=7,
+    ).fit(X, y)
+
+    model_name = "credit-scoring-model"
+    experiment = mlflow.set_experiment("predict-unit-tests")
+    with mlflow.start_run(experiment_id=experiment.experiment_id):
+        mlflow.sklearn.log_model(
+            clf, artifact_path="model",
+            registered_model_name=model_name,
+        )
+
+    client = mlflow.tracking.MlflowClient()
+    versions = client.search_model_versions(f"name='{model_name}'")
+    mv = max(versions, key=lambda v: int(v.version))
+    client.transition_model_version_stage(
+        name=model_name, version=mv.version,
+        stage="Staging", archive_existing_versions=False,
+    )
+
+    import app.pipeline.predict as predict_mod
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(predict_mod, "MLFLOW_URI", tracking_uri, raising=True)
+    mp.setattr(predict_mod, "MODEL_NAME", model_name, raising=True)
+    mp.setattr(predict_mod, "MODEL_STAGE", "Staging", raising=True)
+    mp.setattr(predict_mod, "MODEL_ALIAS", None, raising=True)
+
+    cache = predict_mod._cache
+    # Force a clean reload against the patched constants even if some
+    # earlier-collected test already populated the cache from elsewhere.
+    with cache._lock:
+        cache._model = None
+        cache._last_check = 0.0
+    cache.ensure_loaded()
+
+    if cache.model is None:
+        mp.undo()
+        pytest.skip("Model could not be loaded into the test MLflow store")
+
+    yield cache
+
+    mp.undo()
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +222,6 @@ class TestValidation:
 # 2. Single prediction
 # ---------------------------------------------------------------------------
 
-@requires_model
 class TestSinglePrediction:
 
     def test_predict_returns_result(self, loaded_cache):
@@ -256,7 +302,6 @@ class TestSinglePrediction:
 # 3. Batch prediction
 # ---------------------------------------------------------------------------
 
-@requires_model
 class TestBatchPrediction:
 
     def test_batch_returns_correct_count(self, loaded_cache):
@@ -301,7 +346,6 @@ class TestBatchPrediction:
 # 4. Prediction buffer
 # ---------------------------------------------------------------------------
 
-@requires_model
 class TestPredictionBuffer:
 
     def test_predictions_appear_in_buffer(self, loaded_cache):

@@ -269,7 +269,7 @@ groups:
         description: "Container has restarted multiple times within 15 minutes."
 
 # =============================================================================
-# ML ANOMALY ALERTS
+# ML ANOMALY ALERTS (infrastructure layer — app/anomaly_detection/)
 # =============================================================================
 
 - name: ml_anomaly_alerts
@@ -310,63 +310,104 @@ groups:
         summary: "CRITICAL ML anomaly detected"
         description: "Anomaly score {{ printf \"%.2f\" $value }} is highly abnormal."
 
-    - alert: PredictedOutage
-
-      expr: |
-        ml_outage_probability > 0.75
-
-      for: 3m
-
-      labels:
-        severity: critical
-        team: aiops
-        type: predictive
-
-      annotations:
-        summary: "Predicted outage risk"
-        description: "Predicted outage probability exceeds 75%."
+    # NOTE: an earlier "PredictedOutage" alert referenced a metric
+    # (ml_outage_probability) that is not emitted anywhere in this codebase —
+    # outage *prediction* (vs. anomaly detection) isn't implemented yet. It
+    # was removed rather than left as a permanently-pending, non-functional
+    # alert. Add it back once that capability exists.
 
 # =============================================================================
-# FEATURE DRIFT ALERTS
+# ML PIPELINE ALERTS (model layer — app/pipeline/, app/serving/)
+# =============================================================================
+#
+# These mirror infra/kubernetes/monitoring/prometheus-deployment.yaml exactly
+# so local Docker Compose and the Kubernetes deployment alert on the same
+# conditions. See docs/runbooks/ for the full runbook on each alert.
 # =============================================================================
 
-- name: feature_drift_alerts
+- name: ml_pipeline_alerts
 
-  interval: 60s
+  interval: 30s
 
   rules:
 
-    - alert: FeatureDriftDetected
+    - alert: ModelDriftDetected
 
       expr: |
-        ml_feature_drift_psi > 0.2
+        ml_drift_detected == 1
+
+      for: 2m
+
+      labels:
+        severity: warning
+        team: mlops
+
+      annotations:
+        summary: "Model drift detected"
+        description: "{{ $value }} features have exceeded PSI alert threshold."
+        runbook: "docs/runbooks/model-drift-detected.md"
+
+    - alert: PredictionConfidenceLow
+
+      expr: |
+        ml_prediction_confidence_mean < 0.35
 
       for: 5m
 
       labels:
         severity: warning
-        team: aiops
-        type: drift
+        team: mlops
 
       annotations:
-        summary: "Feature drift detected"
-        description: "Feature distribution drift exceeds acceptable threshold."
+        summary: "Prediction confidence degraded"
+        description: "Mean prediction confidence is {{ $value | humanizePercentage }}."
 
-    - alert: FeatureDriftCritical
+    - alert: ModelAccuracyDegraded
 
       expr: |
-        ml_feature_drift_psi > 0.4
+        mlflow_run_metric{metric="test_roc_auc"} < 0.75
 
-      for: 2m
+      for: 0m
 
       labels:
         severity: critical
-        team: aiops
-        type: drift
+        team: mlops
 
       annotations:
-        summary: "Critical feature drift detected"
-        description: "Model accuracy may be degraded."
+        summary: "Model ROC-AUC below threshold"
+        description: "Latest model ROC-AUC is {{ $value }}. Retrain required."
+        runbook: "docs/runbooks/model-retraining.md"
+
+    - alert: HighDefaultRate
+
+      expr: |
+        ml_prediction_default_rate > 0.50
+
+      for: 10m
+
+      labels:
+        severity: warning
+        team: mlops
+
+      annotations:
+        summary: "Abnormally high default rate in predictions"
+        description: "Rolling default rate is {{ $value | humanizePercentage }}."
+
+    - alert: InferenceServerDown
+
+      expr: |
+        ml_inference_server_up == 0
+
+      for: 1m
+
+      labels:
+        severity: critical
+        team: mlops
+
+      annotations:
+        summary: "Inference server is unreachable"
+        description: "The ML inference server health check has been failing for 1 minute."
+        runbook: "docs/runbooks/inference-server-down.md"
 
 # =============================================================================
 # SERVICE AVAILABILITY ALERTS

@@ -210,7 +210,10 @@ class _ModelCache:
             with self._lock:
                 self._model         = model
                 self._model_version = str(version)
-                MODEL_VERSION_GAUGE.set(float(version) if version.isdigit() else 0)
+                # mv.version's type is not consistent across MLflow
+                # versions/backends — cast to str before .isdigit().
+                version_str = str(version)
+                MODEL_VERSION_GAUGE.set(float(version_str) if version_str.isdigit() else 0)
             log.info("Model loaded  version=%s", version)
         except Exception as exc:
             MODEL_LOAD_ERRORS.inc()

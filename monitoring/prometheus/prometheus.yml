@@ -17,6 +17,8 @@
 #   - Node Exporter
 #   - cAdvisor
 #   - Anomaly Detector (FastAPI)
+#   - ML Inference Server + Drift Detector (FastAPI)
+#   - ML Metrics Exporter (FastAPI)
 #   - Alertmanager
 #   - Elasticsearch
 #   - Kibana
@@ -178,18 +180,18 @@ scrape_configs:
           environment: local
 
   # ---------------------------------------------------------------------------
-  # ML Feature Drift Detection Service
+  # ML Inference Server + Drift Detection (app/serving/app.py)
   # ---------------------------------------------------------------------------
-  - job_name: "ml-drift-detector"
+  - job_name: "inference-server"
 
     metrics_path: /metrics
 
     static_configs:
       - targets:
-          - "ml-drift-detector:8006"
+          - "inference-server:8006"
 
         labels:
-          service: ml-drift-detector
+          service: inference-server
           environment: local
           team: mlops
 

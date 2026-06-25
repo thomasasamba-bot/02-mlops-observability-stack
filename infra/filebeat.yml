@@ -1,0 +1,40 @@
+# =============================================================================
+# infra/filebeat.yml
+#
+# Ships Docker container logs from the host to Logstash (beats input,
+# port 5044 — see infra/docker/logstash/pipeline/logstash.conf).
+#
+# Previously this file was empty (0 bytes) and the path in docker-compose.yml
+# had a stray leading space ("./infra/ filebeat.yml") that didn't match this
+# file's actual name, so the bind mount silently failed.
+# =============================================================================
+
+filebeat.inputs:
+  - type: container
+    paths:
+      - /var/lib/docker/containers/*/*.log
+    processors:
+      - add_docker_metadata:
+          host: "unix:///var/run/docker.sock"
+      - decode_json_fields:
+          fields: ["message"]
+          target: "parsed"
+          process_array: false
+          max_depth: 2
+          overwrite_keys: false
+          add_error_key: false
+
+processors:
+  - add_host_metadata: ~
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+logging.level: info
+logging.to_files: false
+logging.to_stderr: true
+
+# Avoid Filebeat refusing to start over strict config-file permission checks
+# inside the container (the compose service also passes -strict.perms=false).
+filebeat.config.modules:
+  reload.enabled: false

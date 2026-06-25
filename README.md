@@ -5,11 +5,13 @@
 ![MLflow](https://img.shields.io/badge/MLflow-3.13.0-blue?logo=mlflow)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?logo=fastapi&logoColor=white)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-validated-326CE5?logo=kubernetes&logoColor=white)
-![CI](https://github.com/thomasasamba-bot/02-observability-ml-alerting/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/thomasasamba-bot/02-mlops-observability-stack/actions/workflows/ci.yml/badge.svg)
 
-> **Observe what's happening *inside* your ML system — not just around it.**
+> **See inside your ML system — not just around it.**
 
-A production-grade MLOps observability stack that combines infrastructure anomaly detection with deep ML pipeline visibility: model drift scores, prediction confidence distributions, and feature shift detection exposed as Prometheus metrics and visualised in Grafana.
+**`02-mlops-observability-stack`** is a production-ready observability platform that transforms blind spots into actionable insights. It detects model drift before predictions fail, tracks feature distribution shifts in real-time, and exposes ML pipeline health as native Prometheus metrics — all without manual intervention.
+
+Combines infrastructure-layer anomaly detection (CPU/memory/disk via Z-Score, EWMA, Isolation Forest) with deep ML pipeline visibility (PSI + KS-test drift scoring, prediction confidence tracking, feature stability monitoring). Built for SRE and AIops/Mlops teams running credit scoring, fraud detection, and other high-stakes AI/ML systems.
 
 Part of a public SRE/AIOps portfolio by **Thomas Asamba** — Senior SRE and Cloud/DevOps Engineer, Nairobi.
 
@@ -149,8 +151,8 @@ Confidence mean shift during chaos test: `0.595` (drifted) → `0.314` (stable) 
 
 ```bash
 # 1. Clone and set up
-git clone https://github.com/thomasasamba-bot/02-observability-ml-alerting
-cd 02-observability-ml-alerting
+git clone https://github.com/thomasasamba-bot/02-mlops-observability-stack
+cd 02-mlops-observability-stack
 bash scripts/bootstrap/setup.sh
 
 # 2. Start MLflow (Terminal 1)
@@ -248,7 +250,7 @@ The platform fires alerts when metrics exceed operational thresholds:
 
 ## Project structure
 
-![Project folder structure](docs/diagrams/project%20_folder_structure_overview.png)
+![Project folder structure](docs/diagrams/project-folder-structure-overview.png)
 
 ---
 

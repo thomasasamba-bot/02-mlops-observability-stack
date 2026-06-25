@@ -6,6 +6,9 @@
 # -----------------------------------------------------------------------------
 # Local development and observability orchestration stack for:
 #
+# - MLflow experiment tracking & model registry
+# - ML inference server (credit scoring) + drift detection
+# - Prometheus metrics exporter (bridges MLflow -> Prometheus)
 # - AIOps infrastructure anomaly detection
 # - Prometheus monitoring
 # - Grafana visualization
@@ -31,13 +34,144 @@ version: "3.9"
 services:
 
   # ===========================================================================
-  # AIOps Infrastructure Anomaly Detection Service
+  # MLflow Tracking Server & Model Registry
   # ===========================================================================
-  anomaly-detector:
+  mlflow:
+
+    build:
+      context: .
+      dockerfile: infra/docker/mlflow/Dockerfile
+
+    container_name: mlflow
+
+    ports:
+      - "5000:5000"
+
+    volumes:
+      - mlflow-data:/mlflow-data
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
+  # ===========================================================================
+  # ML Inference Server (credit scoring + drift detection) — port 8006
+  # ===========================================================================
+  inference-server:
 
     build:
       context: .
       dockerfile: app/serving/Dockerfile
+
+    container_name: inference-server
+
+    ports:
+      - "8006:8006"
+
+    environment:
+      MLFLOW_TRACKING_URI:  http://mlflow:5000
+      MLFLOW_EXPERIMENT:    credit-scoring
+      MODEL_STAGE:          Staging
+      SERVICE_NAME:         ml-inference-server
+      MAX_BATCH_SIZE:       "500"
+      LOG_LEVEL:            INFO
+      DECISION_THRESHOLD:   "0.40"
+      LOW_CONF_LOW:         "0.35"
+      LOW_CONF_HIGH:        "0.55"
+      PREDICTION_BUFFER_SIZE: "2000"
+      MODEL_RELOAD_INTERVAL:  "300"
+      DRIFT_WINDOW:         "300"
+      DRIFT_INTERVAL:       "120"
+      PSI_WARN_THRESHOLD:   "0.10"
+      PSI_ALERT_THRESHOLD:  "0.25"
+      KS_ALPHA:             "0.05"
+      MIN_WINDOW_SIZE:      "50"
+      SCHEMA_PATH:          data/processed/feature_schema.json
+
+    volumes:
+      # Bind-mounted (not a named volume) so the schema/model artifacts
+      # written by `docker compose exec inference-server python -m
+      # app.pipeline.train` are immediately visible to metrics-exporter too.
+      - ./data:/app/data
+
+    depends_on:
+      mlflow:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ===========================================================================
+  # Prometheus Metrics Exporter (bridges MLflow + dataset stats) — port 8007
+  # ===========================================================================
+  metrics-exporter:
+
+    build:
+      context: .
+      dockerfile: app/serving/Dockerfile
+
+    container_name: metrics-exporter
+
+    command: ["uvicorn", "app.exporter.metrics_exporter:app", "--host", "0.0.0.0", "--port", "8007"]
+
+    ports:
+      - "8007:8007"
+
+    environment:
+      MLFLOW_TRACKING_URI:     http://mlflow:5000
+      MLFLOW_EXPERIMENT:       credit-scoring
+      MODEL_NAME:              credit-scoring-model
+      INFERENCE_BASE_URL:      http://inference-server:8006
+      EXPORTER_POLL_INTERVAL:  "60"
+      SCHEMA_PATH:             data/processed/feature_schema.json
+      BASELINE_CSV:            data/raw/credit_baseline.csv
+      DRIFTED_CSV:             data/raw/credit_drifted.csv
+      LOG_LEVEL:               INFO
+
+    volumes:
+      - ./data:/app/data
+
+    depends_on:
+      mlflow:
+        condition: service_healthy
+      inference-server:
+        condition: service_started
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ===========================================================================
+  # AIOps Infrastructure Anomaly Detection Service — port 8000
+  # ===========================================================================
+  #
+  # Runs app.anomaly_detection.detector:app (Z-Score / EWMA / Isolation
+  # Forest on CPU/memory/disk/network). Previously this service built from
+  # app/serving/Dockerfile (the ML inference image) by mistake, which meant
+  # it never ran this app at all and the health check / port mapping never
+  # matched what was actually built.
+  #
+  anomaly-detector:
+
+    build:
+      context: .
+      dockerfile: app/anomaly_detection/Dockerfile
 
     container_name: anomaly-detector
 
@@ -188,10 +322,12 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 90s
 
   # ===========================================================================
   # Logstash
   # ===========================================================================
+
   logstash:
 
     image: docker.elastic.co/logstash/logstash:8.12.0
@@ -215,10 +351,12 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 60s
 
   # ===========================================================================
   # Kibana
   # ===========================================================================
+
   kibana:
 
     image: docker.elastic.co/kibana/kibana:8.12.0
@@ -241,10 +379,12 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 60s
 
   # ===========================================================================
   # Node Exporter
   # ===========================================================================
+
   node-exporter:
 
     image: prom/node-exporter:latest
@@ -257,7 +397,7 @@ services:
     pid: host
 
     volumes:
-      - /:/host:ro,rslave
+      - /:/host:ro
 
     command:
       - "--path.rootfs=/host"
@@ -328,4 +468,4 @@ volumes:
   prometheus-data:
   grafana-data:
   elasticsearch-data:
-
+  mlflow-data:

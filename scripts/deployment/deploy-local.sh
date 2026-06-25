@@ -66,11 +66,7 @@ if [ "$TRAIN" = true ]; then
         sleep 3
     done
     info "Training model ..."
-    $COMPOSE exec -T inference-server python -m app.pipeline.train || \
-        docker run --rm --network host \
-            -e MLFLOW_TRACKING_URI=http://localhost:5000 \
-            -v "$PWD":/app -w /app \
-            observability-ml:latest python -m app.pipeline.train
+    $COMPOSE exec -T inference-server python -m app.pipeline.train
 fi
 
 # ── Status ────────────────────────────────────────────────────────────────────
@@ -82,5 +78,7 @@ info "    Metrics export:  http://localhost:8007/metrics"
 info "    Prometheus:      http://localhost:9090"
 info "    Grafana:         http://localhost:3000  (admin/admin)"
 info "    Alertmanager:    http://localhost:9093"
+info "    Anomaly detector: http://localhost:8005/status"
+info "    Kibana:          http://localhost:5601"
 info "=================================================="
 info "  Stop with: bash scripts/deployment/destroy.sh"

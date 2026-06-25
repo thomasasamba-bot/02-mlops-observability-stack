@@ -1,18 +1,28 @@
-fastapi
-uvicorn[standard]
+# =============================================================================
+# app/serving/requirements.txt
+#
+# Dependencies for app.serving.app — the FastAPI ML inference server.
+# This process also imports app.pipeline.predict and app.pipeline.drift_detector
+# at startup, so their dependencies (mlflow, scipy) must be listed here too.
+# Versions kept in lockstep with the root requirements.txt.
+#
+# NOTE: app/anomaly_detection/ is a separate service with its own
+# requirements file (app/anomaly_detection/requirements.txt) — it does not
+# need elasticsearch/apscheduler/python-json-logger, which were previously
+# (incorrectly) listed here.
+# =============================================================================
 
-numpy
-pandas
-scikit-learn
+fastapi==0.136.3
+uvicorn[standard]==0.48.0
+pydantic==2.13.4
 
-prometheus-client
+numpy==2.4.6
+pandas==2.3.3
+scikit-learn==1.8.0
+scipy==1.17.1
 
-elasticsearch
+mlflow==3.13.0
 
-requests
-
-pydantic
-
-python-json-logger
-
-apscheduler
+prometheus_client==0.25.0
+python-dotenv==1.2.2
+requests==2.34.2

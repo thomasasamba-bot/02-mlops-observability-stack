@@ -57,7 +57,8 @@ spec:
               cpu: "1000m"
       volumes:
         - name: data-volume
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: ml-data-pvc
 
 ---
 # =============================================================================

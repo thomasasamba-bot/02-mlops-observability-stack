@@ -73,7 +73,8 @@ spec:
             periodSeconds: 20
       volumes:
         - name: data-volume
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: ml-data-pvc
 
 ---
 apiVersion: v1
